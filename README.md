@@ -1,2 +1,2 @@
-# Proyecto_Sistemas
-Proyecto de sistemas operativos clase 1761
+# Proyecto_Sistemas_Operativos
+-El pdf contiene todo la documentacion del proyecto :)
