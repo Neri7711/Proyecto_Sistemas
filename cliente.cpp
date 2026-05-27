@@ -7,6 +7,7 @@
 #include <sstream>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -22,6 +23,7 @@ vector<string> g_connectedUsers;
 atomic<bool> g_running(true);
 
 vector<string> g_commands = {
+    "/ayuda",
     "/usuarios",
     "/msg",
     "/registrar",
@@ -36,10 +38,13 @@ bool startsWith(const string& s, const string& prefix) {
 bool recibirTexto(int socketCliente, string& salida) {
     char buffer[4096];
     memset(buffer, 0, sizeof(buffer));
+
     int bytes = recv(socketCliente, buffer, sizeof(buffer) - 1, 0);
+
     if (bytes <= 0) {
         return false;
     }
+
     salida = buffer;
     return true;
 }
@@ -50,6 +55,7 @@ void actualizarUsuariosDesdeRaw(const string& respuesta) {
     }
 
     string lista = respuesta.substr(string("USERS_LIST:").size());
+
     lista.erase(remove(lista.begin(), lista.end(), '\n'), lista.end());
     lista.erase(remove(lista.begin(), lista.end(), '\r'), lista.end());
 
@@ -80,6 +86,7 @@ char* command_generator(const char* text, int state) {
     if (state == 0) {
         index = 0;
         matches.clear();
+
         string pref = text;
 
         for (const auto& cmd : g_commands) {
@@ -103,9 +110,11 @@ char* user_generator(const char* text, int state) {
     if (state == 0) {
         index = 0;
         matches.clear();
+
         string pref = text;
 
         lock_guard<mutex> lock(g_usersMutex);
+
         for (const auto& user : g_connectedUsers) {
             if (user.find(pref) == 0) {
                 matches.push_back(user);
@@ -145,13 +154,17 @@ void recibirMensajes() {
 
     while (g_running) {
         memset(buffer, 0, sizeof(buffer));
+
         int bytes = recv(g_socketCliente, buffer, sizeof(buffer) - 1, 0);
 
         if (bytes <= 0) {
             g_running = false;
+
             rl_replace_line("", 0);
             rl_on_new_line();
+
             cout << "\nDesconectado del servidor." << endl;
+
             rl_redisplay();
             break;
         }
@@ -170,6 +183,7 @@ void recibirMensajes() {
         rl_crlf();
 
         cout << mensaje;
+
         if (!mensaje.empty() && mensaje.back() != '\n') {
             cout << endl;
         }
@@ -180,11 +194,36 @@ void recibirMensajes() {
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    string ipServidor = "10.255.89.84";
+    int puertoServidor = 5000;
+
+    if (argc >= 2) {
+        ipServidor = argv[1];
+    }
+
+    if (argc >= 3) {
+        puertoServidor = atoi(argv[2]);
+
+        if (puertoServidor <= 0 || puertoServidor > 65535) {
+            cerr << "Puerto invalido. Usa un valor entre 1 y 65535." << endl;
+            return 1;
+        }
+    }
+
+    if (argc > 3) {
+        cerr << "Uso: " << argv[0] << " [ip_servidor] [puerto]" << endl;
+        cerr << "Ejemplo: " << argv[0] << " 192.168.1.75 5000" << endl;
+        return 1;
+    }
+
+    cout << "Conectando a " << ipServidor << ":" << puertoServidor << "..." << endl;
+
     int socketCliente;
     struct sockaddr_in direccionServidor;
 
     socketCliente = socket(AF_INET, SOCK_STREAM, 0);
+
     if (socketCliente == -1) {
         cerr << "Error al crear socket." << endl;
         return 1;
@@ -193,9 +232,9 @@ int main() {
     g_socketCliente = socketCliente;
 
     direccionServidor.sin_family = AF_INET;
-    direccionServidor.sin_port = htons(5000);
+    direccionServidor.sin_port = htons(puertoServidor);
 
-    if (inet_pton(AF_INET, "10.15.216.84", &direccionServidor.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, ipServidor.c_str(), &direccionServidor.sin_addr) <= 0) {
         cerr << "Direccion IP invalida." << endl;
         close(socketCliente);
         return 1;
@@ -207,13 +246,15 @@ int main() {
         return 1;
     }
 
-    string entrada, respuesta;
+    string entrada;
+    string respuesta;
 
     if (!recibirTexto(socketCliente, respuesta)) {
         cerr << "Error al recibir solicitud de usuario." << endl;
         close(socketCliente);
         return 1;
     }
+
     cout << respuesta;
     getline(cin, entrada);
     send(socketCliente, entrada.c_str(), entrada.size(), 0);
@@ -223,6 +264,7 @@ int main() {
         close(socketCliente);
         return 1;
     }
+
     cout << respuesta;
     getline(cin, entrada);
     send(socketCliente, entrada.c_str(), entrada.size(), 0);
@@ -255,6 +297,7 @@ int main() {
 
     while (g_running) {
         char* linea = readline("> ");
+
         if (!linea) {
             g_running = false;
             shutdown(socketCliente, SHUT_RDWR);
@@ -272,6 +315,7 @@ int main() {
         add_history(mensaje.c_str());
 
         ssize_t enviados = send(socketCliente, mensaje.c_str(), mensaje.size(), 0);
+
         if (enviados <= 0) {
             g_running = false;
             shutdown(socketCliente, SHUT_RDWR);
@@ -289,5 +333,7 @@ int main() {
 
     shutdown(socketCliente, SHUT_RDWR);
     close(socketCliente);
+
     return 0;
 }
+
